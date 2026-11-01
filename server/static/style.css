@@ -1,0 +1,268 @@
+:root {
+  color-scheme: dark;
+  font-family: Inter, Pretendard, "Noto Sans KR", system-ui, sans-serif;
+  background: #08111f;
+  color: #e7edf7;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at top right, rgba(29, 78, 216, 0.2), transparent 32rem),
+    #08111f;
+}
+
+.shell {
+  width: min(1180px, calc(100% - 32px));
+  margin: 0 auto;
+  padding: 56px 0;
+}
+
+.header,
+.panel-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.eyebrow {
+  margin: 0 0 10px;
+  color: #60a5fa;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+}
+
+h1,
+h2,
+p {
+  margin-top: 0;
+}
+
+h1 {
+  margin-bottom: 12px;
+  font-size: clamp(32px, 5vw, 52px);
+  line-height: 1;
+}
+
+.description,
+.panel-heading p,
+.panel-heading time {
+  color: #94a3b8;
+}
+
+.connection {
+  flex: 0 0 auto;
+  padding: 10px 14px;
+  border: 1px solid #334155;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.8);
+  color: #cbd5e1;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.connection.connected {
+  border-color: rgba(52, 211, 153, 0.45);
+  color: #6ee7b7;
+}
+
+.connection.error {
+  border-color: rgba(248, 113, 113, 0.45);
+  color: #fca5a5;
+}
+
+.summary {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  margin: 40px 0 20px;
+}
+
+.summary article,
+.panel {
+  border: 1px solid #1e293b;
+  background: rgba(15, 23, 42, 0.82);
+  box-shadow: 0 22px 60px rgba(0, 0, 0, 0.2);
+}
+
+.summary article {
+  padding: 22px;
+  border-radius: 16px;
+}
+
+.summary span {
+  display: block;
+  margin-bottom: 8px;
+  color: #94a3b8;
+  font-size: 13px;
+}
+
+.summary strong {
+  font-size: 30px;
+}
+
+.panel {
+  overflow: hidden;
+  border-radius: 20px;
+}
+
+.panel-heading {
+  padding: 24px;
+  border-bottom: 1px solid #1e293b;
+}
+
+.panel-heading h2 {
+  margin-bottom: 6px;
+  font-size: 20px;
+}
+
+.panel-heading p,
+.panel-heading time {
+  margin-bottom: 0;
+  font-size: 13px;
+}
+
+.table-wrap {
+  overflow-x: auto;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  white-space: nowrap;
+}
+
+caption {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+
+th,
+td {
+  padding: 18px 20px;
+  border-bottom: 1px solid #1e293b;
+  text-align: left;
+}
+
+th {
+  color: #64748b;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+td {
+  color: #cbd5e1;
+  font-size: 14px;
+}
+
+tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+tbody tr:hover {
+  background: rgba(30, 41, 59, 0.45);
+}
+
+.agent-id {
+  color: #f8fafc;
+  font-weight: 800;
+}
+
+.metric {
+  font-variant-numeric: tabular-nums;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.online,
+.normal {
+  background: rgba(16, 185, 129, 0.14);
+  color: #6ee7b7;
+}
+
+.offline {
+  background: rgba(239, 68, 68, 0.14);
+  color: #fca5a5;
+}
+
+.warning {
+  background: rgba(234, 179, 8, 0.18);
+  color: #fde047;
+}
+
+.pending {
+  background: rgba(59, 130, 246, 0.16);
+  color: #93c5fd;
+}
+
+.success {
+  background: rgba(16, 185, 129, 0.14);
+  color: #6ee7b7;
+}
+
+.timeout,
+.error {
+  background: rgba(239, 68, 68, 0.14);
+  color: #fca5a5;
+}
+
+.restart-button {
+  padding: 8px 12px;
+  border: 1px solid #3b82f6;
+  border-radius: 8px;
+  background: rgba(37, 99, 235, 0.14);
+  color: #bfdbfe;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.restart-button:hover:not(:disabled) {
+  background: rgba(37, 99, 235, 0.28);
+}
+
+.restart-button:focus-visible {
+  outline: 2px solid #93c5fd;
+  outline-offset: 2px;
+}
+
+.restart-button:disabled {
+  cursor: wait;
+  opacity: 0.5;
+}
+
+@media (max-width: 720px) {
+  .shell {
+    width: min(100% - 20px, 1180px);
+    padding: 32px 0;
+  }
+
+  .header,
+  .panel-heading {
+    flex-direction: column;
+  }
+
+  .summary {
+    grid-template-columns: 1fr;
+  }
+}

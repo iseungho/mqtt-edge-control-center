@@ -13,6 +13,8 @@ MQTT_HOST = os.getenv("MQTT_HOST", "broker")
 MQTT_PORT = int(os.getenv("MQTT_PORT", "1883"))
 HEARTBEAT_INTERVAL = float(os.getenv("HEARTBEAT_INTERVAL", "10"))
 HEARTBEAT_TOPIC = f"agents/{AGENT_ID}/heartbeat"
+COMMAND_TOPIC = f"agents/{AGENT_ID}/commands"
+RESPONSE_TOPIC = f"agents/{AGENT_ID}/responses"
 
 stop_event = threading.Event()
 
@@ -34,7 +36,9 @@ def build_heartbeat() -> dict[str, str | float]:
 
 def on_connect(client, userdata, flags, reason_code, properties):
     if reason_code == 0:
+        client.subscribe(COMMAND_TOPIC, qos=1)
         print(f"[{AGENT_ID}] connected to MQTT broker at {MQTT_HOST}:{MQTT_PORT}")
+        print(f"[{AGENT_ID}] subscribed to {COMMAND_TOPIC}")
     else:
         print(f"[{AGENT_ID}] MQTT connection failed: {reason_code}")
 
@@ -42,6 +46,29 @@ def on_connect(client, userdata, flags, reason_code, properties):
 def on_disconnect(client, userdata, disconnect_flags, reason_code, properties):
     if reason_code != 0 and not stop_event.is_set():
         print(f"[{AGENT_ID}] disconnected unexpectedly; reconnecting: {reason_code}")
+
+
+def on_message(client, userdata, message):
+    try:
+        command = json.loads(message.payload)
+        request_id = command.get("request_id")
+        if not isinstance(request_id, str) or not request_id.strip():
+            raise ValueError("request_id must not be empty")
+        if command.get("command") != "RESTART":
+            raise ValueError("unsupported command")
+    except (json.JSONDecodeError, AttributeError, ValueError) as error:
+        print(f"[{AGENT_ID}] ignored invalid command: {error}")
+        return
+
+    response = {
+        "request_id": request_id,
+        "agent_id": AGENT_ID,
+        "command": "RESTART",
+        "status": "SUCCESS",
+        "responded_at": datetime.now(timezone.utc).isoformat(),
+    }
+    client.publish(RESPONSE_TOPIC, json.dumps(response), qos=1)
+    print(f"[{AGENT_ID}] RESTART command completed: {request_id}")
 
 
 def stop_agent(signum, frame):
@@ -63,6 +90,7 @@ def main():
     )
     client.on_connect = on_connect
     client.on_disconnect = on_disconnect
+    client.on_message = on_message
     client.reconnect_delay_set(min_delay=1, max_delay=10)
     client.connect_async(MQTT_HOST, MQTT_PORT, keepalive=30)
     client.loop_start()
@@ -81,8 +109,11 @@ def main():
             )
             try:
                 result.wait_for_publish(timeout=5)
+                if not result.is_published():
+                    print(f"[{AGENT_ID}] heartbeat publish timed out")
+                    continue
                 print(f"[{AGENT_ID}] heartbeat published: {heartbeat}")
-            except RuntimeError as error:
+            except (RuntimeError, ValueError) as error:
                 print(f"[{AGENT_ID}] heartbeat publish failed: {error}")
 
             stop_event.wait(HEARTBEAT_INTERVAL)
