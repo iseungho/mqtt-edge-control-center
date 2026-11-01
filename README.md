@@ -18,30 +18,7 @@ Docker 컨테이너를 엣지 장비로 가정해 Agent 3개의 상태를 MQTT�
 
 ## 시스템 구조
 
-```mermaid
-flowchart LR
-    subgraph UI["사용자 인터페이스"]
-        Dashboard["Web Dashboard<br/>상태 조회 · RESTART"]
-    end
-
-    subgraph Control["중앙 관리 영역"]
-        Server["FastAPI Server<br/>상태 판정 · 명령 추적"]
-        Broker["Eclipse Mosquitto<br/>MQTT Message Broker"]
-    end
-
-    subgraph Edge["Edge Device 영역 · Docker Containers"]
-        direction TB
-        A["Agent A"]
-        B["Agent B"]
-        C["Agent C"]
-    end
-
-    Dashboard <-->|"REST API<br/>1초 Polling · RESTART"| Server
-    Server <-->|"MQTT<br/>Command · Heartbeat · Response"| Broker
-    Broker <-->|"MQTT"| A
-    Broker <-->|"MQTT"| B
-    Broker <-->|"MQTT"| C
-```
+![MQTT Edge Control Center 시스템 구조](docs/images/system-architecture.png)
 
 - **Broker**: MQTT 메시지를 Topic 기준으로 중계합니다.
 - **Server**: Heartbeat 수신, 상태 판정, 명령 발행, 응답 매칭과 API 제공을 담당합니다.
