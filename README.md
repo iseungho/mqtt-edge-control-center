@@ -2,11 +2,11 @@
 
 Docker 컨테이너를 엣지 장비로 가정해 Agent 3개의 상태를 MQTT로 수집하고, 웹 대시보드에서 장애 감지와 원격 명령을 처리하는 로컬 모니터링 시스템입니다.
 
-> 과제 범위에 맞춰 모든 구성 요소는 한 대의 PC에서 실행되며 외부 클라우드와 실제 하드웨어는 사용하지 않습니다.
+> 현재 구현 범위에서는 모든 구성 요소를 한 대의 PC에서 실행하며 외부 클라우드와 실제 하드웨어는 사용하지 않습니다.
 
 ## 요구사항 달성 현황
 
-| 평가 항목 | 구현 내용 | 상태 |
+| 기능 | 구현 내용 | 상태 |
 | --- | --- | :---: |
 | MQTT Heartbeat | Agent A/B/C가 10초마다 CPU, Memory, Disk 상태를 JSON으로 발행 | ✅ |
 | 실시간 모니터링 | 새로고침 없이 1초마다 Agent 상태 자동 갱신 | ✅ |
@@ -14,19 +14,33 @@ Docker 컨테이너를 엣지 장비로 가정해 Agent 3개의 상태를 MQTT�
 | 원격 명령 | UUID Request ID 기반 RESTART Request/Response | ✅ |
 | 비동기 예외 처리 | 즉시 HTTP 202 반환, 10초 무응답 시 TIMEOUT | ✅ |
 | 임계치 알림 | Disk 사용률이 90%를 초과하면 노란색 WARNING | ✅ |
-| 제출 자료 | 실행 방법, Topic/메시지 명세, 테스트, 상황별 캡처 | ✅ |
+| 문서화 | 실행 방법, Topic/메시지 명세, 테스트, 상황별 캡처 | ✅ |
 
 ## 시스템 구조
 
 ```mermaid
 flowchart LR
-    Browser[Web Dashboard] -->|GET /api/agents<br/>1초 Polling| Server[FastAPI Server]
-    Browser -->|POST RESTART| Server
-    Server -->|Command Publish| Broker[Eclipse Mosquitto]
-    Broker -->|Response / Heartbeat| Server
-    Broker <--> A[Agent A Container]
-    Broker <--> B[Agent B Container]
-    Broker <--> C[Agent C Container]
+    subgraph UI["사용자 인터페이스"]
+        Dashboard["Web Dashboard<br/>상태 조회 · RESTART"]
+    end
+
+    subgraph Control["중앙 관리 영역"]
+        Server["FastAPI Server<br/>상태 판정 · 명령 추적"]
+        Broker["Eclipse Mosquitto<br/>MQTT Message Broker"]
+    end
+
+    subgraph Edge["Edge Device 영역 · Docker Containers"]
+        direction TB
+        A["Agent A"]
+        B["Agent B"]
+        C["Agent C"]
+    end
+
+    Dashboard <-->|"REST API<br/>1초 Polling · RESTART"| Server
+    Server <-->|"MQTT<br/>Command · Heartbeat · Response"| Broker
+    Broker <-->|"MQTT"| A
+    Broker <-->|"MQTT"| B
+    Broker <-->|"MQTT"| C
 ```
 
 - **Broker**: MQTT 메시지를 Topic 기준으로 중계합니다.
@@ -79,7 +93,7 @@ docker compose up -d agent-a agent-b agent-c
 
 접속 주소:
 
-Compose는 과제 범위에 맞춰 Broker와 Dashboard 포트를 `127.0.0.1`에만 바인딩합니다. Agent 컨테이너는 호스트 포트가 아니라 Docker 내부 네트워크의 `broker:1883`으로 통신합니다.
+Compose는 로컬 실행 범위에 맞춰 Broker와 Dashboard 포트를 `127.0.0.1`에만 바인딩합니다. Agent 컨테이너는 호스트 포트가 아니라 Docker 내부 네트워크의 `broker:1883`으로 통신합니다.
 
 | 용도 | 주소 |
 | --- | --- |
@@ -331,9 +345,9 @@ docker compose run --rm agent-a python -m unittest
 
 서버 테스트 4개는 상태 판정, 명령 처리와 MQTT 입력 검증을 확인합니다. Agent 테스트 1개는 정상 RESTART 응답과 잘못된 명령 무시를 확인합니다.
 
-## 설계 검토와 확장 방향
+## 설계 특성과 확장 전략
 
-### 현재 설계에서 잘된 점
+### 핵심 설계 원칙
 
 - Broker, Server, Agent의 책임을 분리해 MQTT 메시지 흐름을 명확하게 구성했습니다.
 - 같은 Agent 이미지를 환경 변수로 구분해 세 엣지 장비가 독립적으로 동작합니다.
@@ -341,11 +355,11 @@ docker compose run --rm agent-a python -m unittest
 - 수신 데이터 검증, 공유 상태 Lock, 늦게 도착한 응답 무시 처리를 포함했습니다.
 - Docker Compose 명령 하나로 전체 환경을 같은 조건에서 다시 실행할 수 있습니다.
 
-### 과제 범위에서 단순화한 부분
+### 구현 범위와 제약
 
 현재 시스템은 로컬 PC에서 핵심 MQTT 흐름을 검증하는 데 집중했습니다. 상태와 명령 이력은 메모리에 저장되므로 서버를 재시작하면 초기화됩니다. CPU, Memory, Disk는 가상 데이터이며 RESTART도 실제 프로세스를 종료하지 않고 SUCCESS 응답으로 동작을 모의합니다. Agent가 3개인 환경에서는 별도 실시간 통신 계층을 추가하지 않고 1초 HTTP Polling으로 대시보드를 갱신합니다.
 
-### 운영 환경으로 확장한다면
+### 운영 환경 확장 전략
 
 1. `psutil`을 이용해 실제 장비 지표를 수집합니다.
 2. MQTT 계정 인증, ACL과 TLS를 적용합니다.
@@ -353,7 +367,7 @@ docker compose run --rm agent-a python -m unittest
 4. Agent 수가 증가하면 WebSocket 또는 SSE 기반 Push 방식으로 전환합니다.
 5. 이메일, Slack 또는 Webhook으로 장애와 임계치 경고를 전달합니다.
 
-### 운영 시 고려할 점
+### 운영 리스크 및 고려사항
 
 - 익명 Broker를 외부에 노출하면 허가되지 않은 메시지가 발행될 수 있습니다.
 - 단일 Broker 장애는 모든 Agent와 서버의 MQTT 통신에 영향을 줍니다.
@@ -361,7 +375,7 @@ docker compose run --rm agent-a python -m unittest
 - QoS 1은 메시지를 중복 전달할 수 있으므로 실제 RESTART를 구현할 때는 Request ID 기반 중복 실행 방지가 필요합니다.
 - 네트워크가 일시적으로 끊기면 대시보드 상태와 실제 장비 상태가 잠시 다를 수 있습니다.
 
-현재 구현은 Heartbeat, 장애 감지와 복구, 비동기 명령, TIMEOUT, WARNING이라는 과제 요구사항을 모두 충족합니다. 운영 기능은 실제 지표 수집 → 인증/TLS → 상태 영속화 → Push 기반 대시보드 순서로 확장하는 것이 적절합니다.
+현재 구현은 Heartbeat, 장애 감지와 복구, 비동기 명령, TIMEOUT, WARNING에 대한 정의된 요구사항을 모두 충족합니다. 운영 기능은 실제 지표 수집 → 인증/TLS → 상태 영속화 → Push 기반 대시보드 순서로 확장하는 것이 적절합니다.
 
 ## 검증 결과
 
@@ -382,4 +396,4 @@ docker compose run --rm agent-a python -m unittest
 
 ## 로컬 보안 범위
 
-`mosquitto.conf`는 과제 재현을 위해 익명 접속을 허용하고 persistence를 사용하지 않습니다. 현재 Compose는 Broker와 Dashboard를 localhost에만 공개합니다. 서로 다른 네트워크의 장비를 연결하려면 포트 바인딩과 `MQTT_HOST`를 변경할 수 있지만, 그전에 계정 인증, ACL, TLS, 방화벽과 영속 저장소를 적용해야 합니다.
+`mosquitto.conf`는 로컬 재현을 위해 익명 접속을 허용하고 persistence를 사용하지 않습니다. 현재 Compose는 Broker와 Dashboard를 localhost에만 공개합니다. 서로 다른 네트워크의 장비를 연결하려면 포트 바인딩과 `MQTT_HOST`를 변경할 수 있지만, 그전에 계정 인증, ACL, TLS, 방화벽과 영속 저장소를 적용해야 합니다.
