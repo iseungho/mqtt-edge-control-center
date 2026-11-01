@@ -38,8 +38,8 @@ flowchart LR
 
 | 구분 | 기술 | 버전 또는 방식 |
 | --- | --- | --- |
-| Language | Python | 3.13 Docker image |
-| MQTT Broker | Eclipse Mosquitto | 2.0 Docker image |
+| Language | Python | 3.13.18 slim, image digest 고정 |
+| MQTT Broker | Eclipse Mosquitto | 2.0.22, image digest 고정 |
 | MQTT Client | paho-mqtt | 2.1.0 |
 | Backend | FastAPI | 0.115.12 |
 | ASGI Server | Uvicorn | 0.34.2 |
@@ -179,6 +179,7 @@ docker compose exec broker mosquitto_sub -t "agents/+/heartbeat" -v
 mqtt-edge-control-center/
 ├─ agent/
 │  ├─ agent.py                 # Heartbeat 발행, 명령 구독과 SUCCESS 응답
+│  ├─ test_agent.py            # 정상 및 잘못된 RESTART 명령 테스트
 │  ├─ Dockerfile
 │  └─ requirements.txt
 ├─ server/
@@ -318,15 +319,17 @@ docker compose start agent-b
 
 ```powershell
 docker compose exec -T server python -m unittest
+docker compose exec -T agent-a python -m unittest
 ```
 
 시스템을 실행하지 않고 일회성 컨테이너로 실행:
 
 ```powershell
 docker compose run --rm server python -m unittest
+docker compose run --rm agent-a python -m unittest
 ```
 
-4개 테스트는 OFFLINE/WARNING 판정, SUCCESS/TIMEOUT과 늦은 응답 무시, 잘못된 MQTT 메시지 거부, 중복 명령 방지를 확인합니다.
+서버 테스트 4개는 상태 판정, 명령 처리와 MQTT 입력 검증을 확인합니다. Agent 테스트 1개는 정상 RESTART 응답과 잘못된 명령 무시를 확인합니다.
 
 ## 설계 검토와 확장 방향
 
@@ -367,7 +370,8 @@ docker compose run --rm server python -m unittest
 | 검증 항목 | 결과 |
 | --- | :---: |
 | Compose 콜드 스타트와 이미지 재빌드 | PASS |
-| 단위 테스트 4개 | PASS |
+| 서버 단위 테스트 4개 | PASS |
+| Agent 명령 테스트 1개 | PASS |
 | Agent 3개 Heartbeat와 ONLINE | PASS |
 | 30초 OFFLINE과 재실행 복구 | PASS |
 | RESTART HTTP 202와 SUCCESS | PASS |
