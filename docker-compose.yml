@@ -1,0 +1,50 @@
+services:
+  broker:
+    image: eclipse-mosquitto:2.0
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mosquitto_sub -h localhost -t '$$SYS/broker/version' -C 1 -W 3"]
+      interval: 5s
+      timeout: 4s
+      retries: 5
+    restart: unless-stopped
+
+  agent-a:
+    build: ./agent
+    environment:
+      AGENT_ID: agent-a
+      MQTT_HOST: broker
+      MQTT_PORT: 1883
+      HEARTBEAT_INTERVAL: 10
+    depends_on:
+      broker:
+        condition: service_healthy
+    restart: unless-stopped
+
+  agent-b:
+    build: ./agent
+    environment:
+      AGENT_ID: agent-b
+      MQTT_HOST: broker
+      MQTT_PORT: 1883
+      HEARTBEAT_INTERVAL: 10
+    depends_on:
+      broker:
+        condition: service_healthy
+    restart: unless-stopped
+
+  agent-c:
+    build: ./agent
+    environment:
+      AGENT_ID: agent-c
+      MQTT_HOST: broker
+      MQTT_PORT: 1883
+      HEARTBEAT_INTERVAL: 10
+    depends_on:
+      broker:
+        condition: service_healthy
+    restart: unless-stopped
+
