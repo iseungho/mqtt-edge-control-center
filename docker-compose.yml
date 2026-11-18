@@ -1,12 +1,53 @@
+x-agent: &agent
+  build: ./agent
+  depends_on:
+    broker:
+      condition: service_healthy
+  restart: unless-stopped
+
 services:
+  broker-auth:
+    image: eclipse-mosquitto:2.0@sha256:09b62ff32c2e7b64d4b431b9a89236073289b68db273de2b089edeb9b0d92b5c
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -eu
+        rm -f /mosquitto/auth/passwords
+        mosquitto_passwd -b -c /mosquitto/auth/passwords control-server "$$MQTT_SERVER_PASSWORD"
+        mosquitto_passwd -b /mosquitto/auth/passwords agent-a "$$AGENT_A_PASSWORD"
+        mosquitto_passwd -b /mosquitto/auth/passwords agent-b "$$AGENT_B_PASSWORD"
+        mosquitto_passwd -b /mosquitto/auth/passwords agent-c "$$AGENT_C_PASSWORD"
+        mosquitto_passwd -b /mosquitto/auth/passwords agent-d "$$AGENT_D_PASSWORD"
+        mosquitto_passwd -b /mosquitto/auth/passwords agent-e "$$AGENT_E_PASSWORD"
+        chown 1883:1883 /mosquitto/auth/passwords || true
+        chmod 600 /mosquitto/auth/passwords
+    environment:
+      MQTT_SERVER_PASSWORD: ${MQTT_SERVER_PASSWORD:?Copy .env.example to .env and set MQTT_SERVER_PASSWORD}
+      AGENT_A_PASSWORD: ${AGENT_A_PASSWORD:?Set AGENT_A_PASSWORD in .env}
+      AGENT_B_PASSWORD: ${AGENT_B_PASSWORD:?Set AGENT_B_PASSWORD in .env}
+      AGENT_C_PASSWORD: ${AGENT_C_PASSWORD:?Set AGENT_C_PASSWORD in .env}
+      AGENT_D_PASSWORD: ${AGENT_D_PASSWORD:?Set AGENT_D_PASSWORD in .env}
+      AGENT_E_PASSWORD: ${AGENT_E_PASSWORD:?Set AGENT_E_PASSWORD in .env}
+    volumes:
+      - broker-auth:/mosquitto/auth
+    restart: "no"
+
   broker:
     image: eclipse-mosquitto:2.0@sha256:09b62ff32c2e7b64d4b431b9a89236073289b68db273de2b089edeb9b0d92b5c
+    environment:
+      MQTT_SERVER_PASSWORD: ${MQTT_SERVER_PASSWORD:?Set MQTT_SERVER_PASSWORD in .env}
     ports:
       - "127.0.0.1:1883:1883"
     volumes:
       - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./mosquitto/acl:/mosquitto/config/acl:ro
+      - broker-auth:/mosquitto/auth:ro
+      - broker-data:/mosquitto/data
+    depends_on:
+      broker-auth:
+        condition: service_completed_successfully
     healthcheck:
-      test: ["CMD-SHELL", "mosquitto_sub -h localhost -t '$$SYS/broker/version' -C 1 -W 3"]
+      test: ["CMD-SHELL", "mosquitto_sub -h localhost -u control-server -P \"$$MQTT_SERVER_PASSWORD\" -t '$$SYS/broker/version' -C 1 -W 3"]
       interval: 5s
       timeout: 4s
       retries: 5
@@ -17,46 +58,84 @@ services:
     environment:
       MQTT_HOST: broker
       MQTT_PORT: 1883
+      MQTT_USERNAME: control-server
+      MQTT_PASSWORD: ${MQTT_SERVER_PASSWORD:?Set MQTT_SERVER_PASSWORD in .env}
+      STATE_DB_PATH: /data/control-center.db
     ports:
       - "127.0.0.1:8000:8000"
+    volumes:
+      - server-data:/data
     depends_on:
       broker:
         condition: service_healthy
     restart: unless-stopped
 
   agent-a:
-    build: ./agent
+    <<: *agent
     environment:
       AGENT_ID: agent-a
       MQTT_HOST: broker
-      MQTT_PORT: 1883
+      MQTT_USERNAME: agent-a
+      MQTT_PASSWORD: ${AGENT_A_PASSWORD:?Set AGENT_A_PASSWORD in .env}
+      AGENT_DB_PATH: /data/agent.db
       HEARTBEAT_INTERVAL: 10
-    depends_on:
-      broker:
-        condition: service_healthy
-    restart: unless-stopped
+    volumes:
+      - agent-a-data:/data
 
   agent-b:
-    build: ./agent
+    <<: *agent
     environment:
       AGENT_ID: agent-b
       MQTT_HOST: broker
-      MQTT_PORT: 1883
+      MQTT_USERNAME: agent-b
+      MQTT_PASSWORD: ${AGENT_B_PASSWORD:?Set AGENT_B_PASSWORD in .env}
+      AGENT_DB_PATH: /data/agent.db
       HEARTBEAT_INTERVAL: 10
-    depends_on:
-      broker:
-        condition: service_healthy
-    restart: unless-stopped
+    volumes:
+      - agent-b-data:/data
 
   agent-c:
-    build: ./agent
+    <<: *agent
     environment:
       AGENT_ID: agent-c
       MQTT_HOST: broker
-      MQTT_PORT: 1883
+      MQTT_USERNAME: agent-c
+      MQTT_PASSWORD: ${AGENT_C_PASSWORD:?Set AGENT_C_PASSWORD in .env}
+      AGENT_DB_PATH: /data/agent.db
       HEARTBEAT_INTERVAL: 10
-    depends_on:
-      broker:
-        condition: service_healthy
-    restart: unless-stopped
+    volumes:
+      - agent-c-data:/data
 
+  agent-d:
+    <<: *agent
+    environment:
+      AGENT_ID: agent-d
+      MQTT_HOST: broker
+      MQTT_USERNAME: agent-d
+      MQTT_PASSWORD: ${AGENT_D_PASSWORD:?Set AGENT_D_PASSWORD in .env}
+      AGENT_DB_PATH: /data/agent.db
+      HEARTBEAT_INTERVAL: 10
+    volumes:
+      - agent-d-data:/data
+
+  agent-e:
+    <<: *agent
+    environment:
+      AGENT_ID: agent-e
+      MQTT_HOST: broker
+      MQTT_USERNAME: agent-e
+      MQTT_PASSWORD: ${AGENT_E_PASSWORD:?Set AGENT_E_PASSWORD in .env}
+      AGENT_DB_PATH: /data/agent.db
+      HEARTBEAT_INTERVAL: 10
+    volumes:
+      - agent-e-data:/data
+
+volumes:
+  broker-auth:
+  broker-data:
+  server-data:
+  agent-a-data:
+  agent-b-data:
+  agent-c-data:
+  agent-d-data:
+  agent-e-data:

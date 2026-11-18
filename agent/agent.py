@@ -7,11 +7,16 @@ from datetime import datetime, timezone
 
 import paho.mqtt.client as mqtt
 
+from commands import CommandProcessor, CommandStore
+
 
 AGENT_ID = os.getenv("AGENT_ID", "agent-unknown")
 MQTT_HOST = os.getenv("MQTT_HOST", "broker")
 MQTT_PORT = int(os.getenv("MQTT_PORT", "1883"))
-HEARTBEAT_INTERVAL = float(os.getenv("HEARTBEAT_INTERVAL", "10"))
+MQTT_USERNAME = os.getenv("MQTT_USERNAME", AGENT_ID)
+MQTT_PASSWORD = os.getenv("MQTT_PASSWORD", "")
+DEFAULT_HEARTBEAT_INTERVAL = float(os.getenv("HEARTBEAT_INTERVAL", "10"))
+AGENT_DB_PATH = os.getenv("AGENT_DB_PATH", ":memory:")
 HEARTBEAT_TOPIC = f"agents/{AGENT_ID}/heartbeat"
 COMMAND_TOPIC = f"agents/{AGENT_ID}/commands"
 RESPONSE_TOPIC = f"agents/{AGENT_ID}/responses"
@@ -34,11 +39,17 @@ def build_heartbeat() -> dict[str, str | float]:
     return heartbeat
 
 
-def on_connect(client, userdata, flags, reason_code, properties):
+def publish_response(client, response: dict):
+    client.publish(RESPONSE_TOPIC, json.dumps(response), qos=1)
+
+
+def on_connect(client, processor, flags, reason_code, properties):
     if reason_code == 0:
         client.subscribe(COMMAND_TOPIC, qos=1)
         print(f"[{AGENT_ID}] connected to MQTT broker at {MQTT_HOST}:{MQTT_PORT}")
         print(f"[{AGENT_ID}] subscribed to {COMMAND_TOPIC}")
+        for response in processor.replay_responses():
+            publish_response(client, response)
     else:
         print(f"[{AGENT_ID}] MQTT connection failed: {reason_code}")
 
@@ -48,27 +59,19 @@ def on_disconnect(client, userdata, disconnect_flags, reason_code, properties):
         print(f"[{AGENT_ID}] disconnected unexpectedly; reconnecting: {reason_code}")
 
 
-def on_message(client, userdata, message):
+def on_message(client, processor, message):
     try:
-        command = json.loads(message.payload)
-        request_id = command.get("request_id")
-        if not isinstance(request_id, str) or not request_id.strip():
-            raise ValueError("request_id must not be empty")
-        if command.get("command") != "RESTART":
-            raise ValueError("unsupported command")
-    except (json.JSONDecodeError, AttributeError, ValueError) as error:
+        responses = processor.handle(message.payload)
+    except (json.JSONDecodeError, AttributeError, TypeError, ValueError) as error:
         print(f"[{AGENT_ID}] ignored invalid command: {error}")
         return
 
-    response = {
-        "request_id": request_id,
-        "agent_id": AGENT_ID,
-        "command": "RESTART",
-        "status": "SUCCESS",
-        "responded_at": datetime.now(timezone.utc).isoformat(),
-    }
-    client.publish(RESPONSE_TOPIC, json.dumps(response), qos=1)
-    print(f"[{AGENT_ID}] RESTART command completed: {request_id}")
+    for response in responses:
+        publish_response(client, response)
+    print(
+        f"[{AGENT_ID}] {responses[-1]['command']} command "
+        f"{responses[-1]['status'].lower()}: {responses[-1]['request_id']}"
+    )
 
 
 def stop_agent(signum, frame):
@@ -78,16 +81,22 @@ def stop_agent(signum, frame):
 def main():
     if not AGENT_ID.strip():
         raise ValueError("AGENT_ID must not be empty")
-    if HEARTBEAT_INTERVAL <= 0:
+    if DEFAULT_HEARTBEAT_INTERVAL <= 0:
         raise ValueError("HEARTBEAT_INTERVAL must be greater than zero")
+    if not MQTT_PASSWORD:
+        raise ValueError("MQTT_PASSWORD must not be empty")
 
     signal.signal(signal.SIGTERM, stop_agent)
     signal.signal(signal.SIGINT, stop_agent)
 
+    command_store = CommandStore(AGENT_DB_PATH, DEFAULT_HEARTBEAT_INTERVAL)
+    processor = CommandProcessor(AGENT_ID, command_store)
     client = mqtt.Client(
         callback_api_version=mqtt.CallbackAPIVersion.VERSION2,
         client_id=AGENT_ID,
+        userdata=processor,
     )
+    client.username_pw_set(MQTT_USERNAME, MQTT_PASSWORD)
     client.on_connect = on_connect
     client.on_disconnect = on_disconnect
     client.on_message = on_message
@@ -116,13 +125,13 @@ def main():
             except (RuntimeError, ValueError) as error:
                 print(f"[{AGENT_ID}] heartbeat publish failed: {error}")
 
-            stop_event.wait(HEARTBEAT_INTERVAL)
+            stop_event.wait(command_store.get_interval())
     finally:
         client.disconnect()
         client.loop_stop()
+        command_store.close()
         print(f"[{AGENT_ID}] stopped")
 
 
 if __name__ == "__main__":
     main()
-

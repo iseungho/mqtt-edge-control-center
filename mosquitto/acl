@@ -1,0 +1,9 @@
+user control-server
+topic read $SYS/broker/version
+topic read agents/+/heartbeat
+topic read agents/+/responses
+topic write agents/+/commands
+
+pattern write agents/%u/heartbeat
+pattern write agents/%u/responses
+pattern read agents/%u/commands

@@ -220,7 +220,8 @@ tbody tr:hover {
 }
 
 .timeout,
-.error {
+.error,
+.failed {
   background: rgba(239, 68, 68, 0.14);
   color: #fca5a5;
 }
@@ -235,6 +236,31 @@ tbody tr:hover {
   font-size: 12px;
   font-weight: 800;
   cursor: pointer;
+}
+
+.command-result {
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.command-controls {
+  display: flex;
+  gap: 8px;
+}
+
+.command-controls select,
+.command-controls input {
+  max-width: 180px;
+  padding: 7px 8px;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  background: #0f172a;
+  color: #cbd5e1;
+}
+
+.command-controls input {
+  width: 76px;
 }
 
 .restart-button:hover:not(:disabled) {

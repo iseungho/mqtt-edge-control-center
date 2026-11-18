@@ -10,6 +10,7 @@ function addCell(row, value, className) {
   if (className) cell.className = className;
   cell.textContent = value;
   row.append(cell);
+  return cell;
 }
 
 function addBadge(row, value) {
@@ -28,15 +29,42 @@ function addCommand(row, agent) {
     addCell(row, "—");
   }
 
+  const detail = agent.command?.error
+    || (agent.command?.result ? JSON.stringify(agent.command.result) : agent.command?.command)
+    || "—";
+  const detailCell = addCell(row, detail, "command-result");
+  detailCell.title = detail;
+
   const cell = document.createElement("td");
+  const controls = document.createElement("div");
+  controls.className = "command-controls";
+  const select = document.createElement("select");
+  select.setAttribute("aria-label", `${agent.agent_id} 명령 선택`);
+  for (const command of ["RESTART", "GET_SYSTEM_INFO", "GET_CONFIG", "SET_HEARTBEAT_INTERVAL"]) {
+    const option = document.createElement("option");
+    option.value = command;
+    option.textContent = command;
+    select.append(option);
+  }
+  const interval = document.createElement("input");
+  interval.type = "number";
+  interval.min = "1";
+  interval.max = "3600";
+  interval.value = "10";
+  interval.hidden = true;
+  interval.setAttribute("aria-label", `${agent.agent_id} Heartbeat 주기(초)`);
+  select.addEventListener("change", () => {
+    interval.hidden = select.value !== "SET_HEARTBEAT_INTERVAL";
+  });
   const button = document.createElement("button");
   button.className = "restart-button";
   button.type = "button";
-  button.textContent = "RESTART";
-  button.disabled = agent.command?.status === "PENDING";
-  button.setAttribute("aria-label", `${agent.agent_id} 재시작 명령`);
-  button.addEventListener("click", () => restartAgent(agent.agent_id, button));
-  cell.append(button);
+  button.textContent = "실행";
+  button.disabled = ["PENDING", "RUNNING"].includes(agent.command?.status);
+  button.setAttribute("aria-label", `${agent.agent_id} 선택 명령 실행`);
+  button.addEventListener("click", () => issueCommand(agent.agent_id, select, interval, button));
+  controls.append(select, interval, button);
+  cell.append(controls);
   row.append(cell);
 }
 
@@ -69,11 +97,22 @@ function render(agents) {
   warningCount.textContent = agents.filter((agent) => agent.alert_status === "WARNING").length;
 }
 
-async function restartAgent(agentId, button) {
+async function issueCommand(agentId, select, interval, button) {
   button.disabled = true;
   try {
-    const response = await fetch(`/api/agents/${agentId}/restart`, { method: "POST" });
-    if (!response.ok) throw new Error(`RESTART 요청 실패: HTTP ${response.status}`);
+    const body = { command: select.value, payload: {} };
+    if (select.value === "SET_HEARTBEAT_INTERVAL") {
+      body.payload.interval = Number(interval.value);
+    }
+    const response = await fetch(`/api/agents/${agentId}/commands`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error.detail || `명령 요청 실패: HTTP ${response.status}`);
+    }
   } catch (error) {
     button.disabled = false;
     connection.textContent = error.message;
