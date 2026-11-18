@@ -1,6 +1,8 @@
 # MQTT Edge Control Center
 
-MQTT 기반 엣지 장비 5개의 상태를 모니터링하고 원격 명령을 비동기로 실행하는 Docker Compose 프로젝트입니다. QoS 1 중복 전달, 서버·Agent 재시작, Broker 연결 중단, 인증 실패와 Agent별 Topic 권한을 실제 장비 관리 환경의 핵심 장애 조건으로 다룹니다.
+Docker 컨테이너로 엣지 장비 5대를 구성해 MQTT로 상태를 모니터링하고, 웹 대시보드에서 원격 명령을 요청하는 프로젝트입니다. 2차에서는 1차의 Heartbeat, ONLINE/OFFLINE 판정, Disk WARNING, RESTART 시뮬레이션을 유지하면서 명령 이력 저장, 중복 실행 방지, 계정 인증과 Agent별 Topic 권한을 추가했습니다.
+
+설계 이유와 코드 예시는 [Notion 2차 개선 학습 노트](https://app.notion.com/p/410b615e1d6c8163a1d3f4321ed71b91?pvs=204)에 정리했습니다.
 
 ## 빠른 실행
 
@@ -51,18 +53,19 @@ Mosquitto ── Password 인증 + ACL + Broker persistence
 
 서버는 REST, MQTT 연결, 메시지 검증, 상태 저장을 각각 분리합니다. Agent는 MQTT Loop와 명령 실행·중복 방지를 분리합니다.
 
-## 개선 전후
+## 1차와 2차의 차이
 
-| 구분 | 개선 전 | 개선 후 |
+| 구분 | 1차 구현 (`v1.0-first-assignment`) | 2차 개선 (`v2.0-improved`) |
 | --- | --- | --- |
 | Agent 등록 | 서버에 A/B/C 하드코딩 | 유효한 Heartbeat 수신 시 자동 등록 |
-| 서버 상태 | 메모리, 재시작 시 초기화 | SQLite와 Docker volume에 영속화 |
-| 명령 상태 | PENDING → SUCCESS/TIMEOUT | PENDING → RUNNING → SUCCESS/FAILED/TIMEOUT |
-| 중복 명령 | 재실행 가능 | Agent SQLite의 Request ID UNIQUE로 실행 1회 보장 |
+| 상태 저장 | 서버 메모리에 Agent 상태와 최신 명령 저장 | 서버는 Agent 상태와 명령 이력, Agent는 처리 기록과 설정을 SQLite에 저장 |
+| 명령 상태와 표시 | 대기·성공·시간 초과 표시 | RUNNING·FAILED 추가, 대시보드에 최신 명령 결과·실패 사유 표시, API로 이력 조회 |
+| Request ID | 요청과 응답 연결 | 기존 연결 방식에 더해 Agent DB의 기본 키로 동일 ID 재실행 방지 |
 | 명령 종류 | RESTART | RESTART, GET_SYSTEM_INFO, GET_CONFIG, SET_HEARTBEAT_INTERVAL |
-| 재연결 | 기본 재연결 | 1~10초 backoff, 연결마다 재구독, 완료 응답 재전송 |
+| 재연결 | 1~10초 재연결 지연, 연결 성공 시 재구독 | 기존 연결 복구 유지, Agent 연결 성공 시 최근 완료 응답 최대 100건 재전송 |
 | Broker | 익명 접속 | 사용자 인증, Agent별 ACL, persistence |
 | 실행 Agent | 3개 | 동일 이미지 기반 5개 |
+| 코드 구조 | 서버의 API·MQTT·상태 관리를 `app.py`에 구성 | REST API, MQTT 통신, 메시지 검증, SQLite 저장 역할 분리 |
 
 ## 프로젝트 구조와 책임
 
@@ -86,21 +89,21 @@ tests/
 docker-compose.yml   # Broker, Server, Agent 5개와 영속 volume
 ```
 
-새 명령은 `agent/commands.py`의 지원 목록과 실행 분기에 추가하고 서버의 `protocol.py` 허용 목록에 등록합니다. 새 Agent는 별도 Agent 코드를 만들지 않고 같은 이미지를 `AGENT_ID`, 계정, 독립 volume으로 실행합니다. 서버 코드는 수정하지 않습니다.
+새 명령은 `agent/commands.py`에서 구현하고 서버의 `protocol.py`에 등록합니다. 대시보드에서도 제공하려면 `server/static/app.js`의 명령 목록과 입력 UI를 함께 확인합니다. 새 Agent는 Broker 계정을 등록한 뒤 동일한 이미지에 고유한 `AGENT_ID`와 일치하는 MQTT 사용자명, 독립 volume을 설정해 실행합니다. 서버는 유효한 Heartbeat를 받으면 새 Agent를 등록합니다.
 
 ## 명령 상태와 장애 의미
 
 | 상태 | 의미 |
 | --- | --- |
 | `PENDING` | 서버가 이력을 먼저 저장하고 Broker에 발행함 |
-| `RUNNING` | Agent가 Request ID를 저장하고 실행을 시작함 |
+| `RUNNING` | Agent가 명령 실행 전에 Request ID와 함께 저장하는 중간 상태 |
 | `SUCCESS` | Agent가 결과를 생성했고 서버가 응답을 수신함 |
 | `FAILED` | Agent 실행 실패 또는 발행 실패 사유가 확인됨 |
 | `TIMEOUT` | 10초 안에 최종 결과를 받지 못해 성공 여부를 확정할 수 없음 |
 
 `TIMEOUT`은 실패 확정이 아닙니다. 실제 명령이 실행된 직후 네트워크가 끊겼을 수도 있으므로 운영자가 이력과 장비 상태를 확인해야 합니다. 늦게 도착한 응답은 이미 확정한 TIMEOUT을 덮어쓰지 않습니다.
 
-RESTART는 컨테이너 자체를 종료하지 않고 `{ "message": "restart simulated" }` 결과를 반환합니다. 접수와 실행 시작, 완료 응답은 실제 명령과 동일한 상태 흐름으로 분리됩니다.
+RESTART는 `{ "message": "restart simulated" }`를 반환하는 시뮬레이션입니다. Agent는 실행 전에 DB에 RUNNING을 기록하고, 명령 처리 함수가 반환된 뒤 RUNNING과 최종 응답을 순서대로 발행합니다. 따라서 대시보드에서 RUNNING이 별도로 보이지 않을 수 있습니다.
 
 ## MQTT Topic과 ACL
 
@@ -112,7 +115,7 @@ RESTART는 컨테이너 자체를 종료하지 않고 `{ "message": "restart sim
 
 `control-server`는 모든 Agent의 Heartbeat/응답을 읽고 명령만 발행할 수 있습니다. Agent 계정은 Mosquitto ACL의 `%u` 패턴을 사용하므로 자신의 `agents/{username}/...` Topic만 접근합니다. 예를 들어 `agent-a`가 `agents/agent-b/heartbeat`에 발행하면 Broker가 거부합니다.
 
-Broker 재연결 시 Server와 Agent의 `on_connect`가 필요한 Topic을 다시 구독합니다. Agent는 로컬 SQLite에 저장한 최근 완료 응답을 다시 발행하여, 서버 재시작이나 응답 전달 중단 뒤에도 같은 Request ID의 결과를 동기화합니다.
+Broker 재연결 시 Server와 Agent의 `on_connect`가 필요한 Topic을 다시 구독합니다. Agent는 연결 성공 시 SQLite에 저장한 최근 SUCCESS·FAILED 응답을 최대 100건 다시 발행합니다. 서버는 일치하는 Request ID가 PENDING 또는 RUNNING일 때 응답을 반영합니다.
 
 ### Heartbeat
 
@@ -142,7 +145,7 @@ Broker 재연결 시 Server와 Agent의 `on_connect`가 필요한 Topic을 다�
 
 ### 명령 응답
 
-실행 시작:
+실행 시작 기록:
 
 ```json
 {
@@ -188,7 +191,7 @@ $body = @{ command = "GET_SYSTEM_INFO"; payload = @{} } | ConvertTo-Json
 Invoke-RestMethod -Method Post -ContentType application/json -Body $body http://localhost:8000/api/agents/agent-a/commands
 ```
 
-Heartbeat 변경 범위는 1~3600초입니다.
+Heartbeat 변경 범위는 1~3600초입니다. 서버의 OFFLINE 판정 기준은 마지막 Heartbeat 수신 후 30초로 고정되어 있습니다. 예를 들어 주기를 60초로 설정하면 정상 Agent도 다음 Heartbeat를 받기 전까지 일시적으로 OFFLINE으로 표시됩니다.
 
 ```powershell
 $body = @{ command = "SET_HEARTBEAT_INTERVAL"; payload = @{ interval = 15 } } | ConvertTo-Json
@@ -214,24 +217,25 @@ powershell -ExecutionPolicy Bypass -File tests/integration.ps1
 
 1. Agent 5개가 동시에 ONLINE
 2. 잘못된 비밀번호의 Broker 접속 거부
-3. Agent A의 Agent B Topic 발행 거부
+3. Agent A의 Agent B Heartbeat Topic 발행 거부 및 Agent B 명령 미수신. Agent A가 자신의 명령을 수신하는 것도 함께 확인
 4. 동일 Request ID를 두 번 발행해도 Agent DB 처리 건수 1개
 5. Server 재시작 뒤 명령 이력 유지
-6. Broker 재시작 뒤 자동 재연결·재구독과 Heartbeat 복구
+6. Broker 재시작 뒤 Agent A의 Heartbeat 수신과 `GET_SYSTEM_INFO` 명령·응답 복구
 
 ### 통합 테스트 결과
 
-2026-11-06 로컬 Docker 환경에서 통합 스크립트를 실행했습니다.
+2026-11-19 로컬 Docker 환경에서 통합 스크립트 전체를 실행했습니다.
 
 | 검증 항목 | 결과 |
 | --- | :---: |
 | Agent 5개 동시 ONLINE | PASS |
 | 잘못된 MQTT 비밀번호 접속 거부 | PASS |
 | 다른 Agent Topic 발행 ACL 거부 | PASS |
-| 동일 Request ID 중복 실행 방지 | PASS |
+| 자신의 명령 수신 및 다른 Agent 명령 미수신 | PASS |
+| 동일 Request ID 재발행 후 Agent DB 기록 1건 | PASS |
 | Server 재시작 후 명령 이력 유지 | PASS |
-| Broker 재시작 후 재연결·재구독 | PASS |
-| 최종 Broker healthy, Agent 5/5 ONLINE | PASS |
+| Broker 재시작 후 Agent A Heartbeat 수신 복구 | PASS |
+| Broker 재시작 후 Agent A의 `GET_SYSTEM_INFO` 성공 응답 | PASS |
 
 수동 TIMEOUT 확인:
 
